@@ -1,0 +1,11 @@
+out.txt
+run.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editors
+*.swo
+*.swp
+*~
