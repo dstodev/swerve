@@ -35,13 +35,10 @@ RUN addgroup --gid "$GROUP_ID" "$GROUP_NAME" \
 	&& adduser --uid "$USER_ID" --ingroup "$GROUP_NAME" \
 	--disabled-password --gecos '' "$USER_NAME"
 
-COPY --from=build --chmod=0755 /keep-open /usr/local/bin/keep-open
-COPY --chmod=0755 entrypoint.sh /root/entrypoint.sh
-COPY --chmod=0755 --chown=$USER_NAME:$GROUP_NAME \
-	app.sh /home/$USER_NAME/app.sh
-COPY --chmod=0755 --chown=$USER_NAME:$GROUP_NAME \
-	leader.sh /home/$USER_NAME/leader.sh
+COPY --from=build --chmod=0555 /keep-open /usr/local/bin/keep-open
+COPY --chmod=0500 entrypoint.sh /usr/local/bin/
+COPY --chmod=0555 app.sh leader.sh /usr/local/bin/
 
 HEALTHCHECK CMD pgrep app.sh >/dev/null || exit 1
 
-ENTRYPOINT ["/root/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -11,19 +11,28 @@ stdin_pipe=''
 
 main() {
 	trap cleanup EXIT
+
 	build_image
 	run_container
+
 	app_exec ps -o pid,ppid,pgid,user,args
 	app_exec ls -la /run
+	app_exec pwd
+
+	wait_for_log_lines "args (2): 'demo' 'forwarded arg'" 1
+
 	set -- 'hello' 'world' 'goodbye'
 	write_stdin "$@"
 	wait_for_log_lines 'got: ' "$#"
+
 	set -- HUP USR1 USR2
 	send_signals "$@"
 	wait_for_log_lines 'signal: ' "$#"
+
 	set -- TERM
 	send_signals "$@"
 	wait_for_log_lines 'app: stdin closed, exiting' 1
+
 	docker logs "$CONTAINER_NAME"
 }
 
@@ -41,7 +50,7 @@ run_container() {
 		--cap-add=SETUID --cap-add=SETGID --cap-add=CHOWN \
 		--cap-add=KILL \
 		--security-opt=no-new-privileges \
-		"$IMAGE_NAME" >/dev/null
+		"$IMAGE_NAME" demo 'forwarded arg' >/dev/null
 	stdin_pipe=$(docker exec "$CONTAINER_NAME" sh -c 'printf %s "$STDIN_PIPE"')
 	wait_for_pipe
 }

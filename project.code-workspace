@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": ".",
+			"name": "swerve",
+		},
+	],
+	"settings": {
+		"files.associations": {
+			".clang-format": "yaml",
+		},
+	},
+}

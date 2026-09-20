@@ -1,0 +1,69 @@
+---
+BasedOnStyle: LLVM
+ColumnLimit: 80
+IndentAccessModifiers: false # Do not indent access specifiers, e.g. `public`
+IndentWidth: 4 # Width is 4 to consume less of the ColumnLimit
+Language: Cpp
+Standard: Latest
+TabWidth: 4 # Keep same value as IndentWidth
+UseTab: ForIndentation # Tabs for indentation, spaces for alignment
+
+# Braces
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: true
+  AfterControlStatement: false
+  AfterEnum: true
+  AfterExternBlock: false
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: true
+  AfterUnion: true
+  BeforeElse: true
+  BeforeWhile: true
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyNamespace: false
+  SplitEmptyRecord: false
+BreakBeforeBraces: Custom
+
+# Align all the things!
+AlignAfterOpenBracket: Align
+AlignArrayOfStructures: Right
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: DontAlign
+AlignOperands: AlignAfterOperator
+AlignTrailingComments: false
+
+# Penalties
+PenaltyBreakAssignment: 500
+PenaltyReturnTypeOnItsOwnLine: 500
+
+# Other
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: None
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: Yes
+BinPackArguments: false
+BinPackParameters: false
+BreakAfterAttributes: Leave
+BreakBeforeBinaryOperators: NonAssignment
+BreakConstructorInitializers: BeforeComma
+IncludeBlocks: Preserve
+IndentCaseLabels: false
+IndentPPDirectives: None
+InsertNewlineAtEOF: true
+MaxEmptyLinesToKeep: 1
+PackConstructorInitializers: NextLine
+PointerAlignment: Left
+ReflowComments: true
+SortIncludes: CaseSensitive
+SortUsingDeclarations: true
+SpaceAfterCStyleCast: true
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeParens: ControlStatements
+SpacesBeforeTrailingComments: 2
+...
