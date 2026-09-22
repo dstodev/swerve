@@ -37,7 +37,7 @@ Any number of `docker exec` calls, at any time, can write to it.
   `read` loop to see an actual EOF and exit through its own code
   path, not a forced kill. See [Shutdown](#shutdown) below for why
   that's harder than it sounds.
-- **Locked-down runtime**: the demo (`run.sh`) drops all
+- **Locked-down runtime**: the test (`test.sh`) drops all
   capabilities and adds back only `SETUID`, `SETGID`, `CHOWN`, `KILL`
   (what the privilege drop and signal delivery actually need), plus
   `--security-opt=no-new-privileges`.
@@ -104,8 +104,9 @@ shell trap wasn't reliable here.
 | `docker/leader.sh`     | Process leader: launches `keep-open`, execs app    |
 | `docker/keep-open.c`   | Holds the FIFO open until `SIGTERM`; app-agnostic  |
 | `docker/app.sh`        | The app to replace with your own (see below)       |
-| `run.sh`               | End-to-end demo: build, feed input, signal, exit   |
-| `Makefile`             | `make help` \| `image` \| `run` \| `shell`/`sh`    |
+| `script/test.sh`       | End-to-end test: build, run, assert invariants     |
+| `script/lint.sh`       | Static checks: shell syntax, signal agreement      |
+| `Makefile`             | `make help` \| `image` \| `lint` \| `test` \| `sh` |
 
 ## Using this as a template
 
@@ -120,7 +121,8 @@ shell trap wasn't reliable here.
 ## Quickstart
 
 ```sh
-make run          # build, run the demo end-to-end, tee output to run.log
+make lint         # static checks, no extra tools
+make test         # build, run, assert invariants, tee output to test.log
 make shell        # drop into a shell in the built image
 docker exec <container> sh -c 'echo hello > /run/stdin.pipe'
 ```

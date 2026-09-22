@@ -35,7 +35,8 @@ int main(int argc, char** argv)
 	/* Block every signal before forking (default disposition is
 	 * terminate): tini -g's group broadcast reaches both processes,
 	 * and blocking after fork would leave a window where it could
-	 * kill either one before the child reaches sigwait. */
+	 * kill either one before the child reaches sigwait. A blocked
+	 * signal isn't lost, it stays pending until sigwait collects it. */
 	sigset_t blocked;
 	sigfillset(&blocked);
 	sigprocmask(SIG_BLOCK, &blocked, NULL);
@@ -48,8 +49,9 @@ int main(int argc, char** argv)
 		return 0; /* parent: fd is open, child holds it, we're done */
 	}
 
-	/* sigwait dequeues WAIT_SIGNAL atomically: no missed-signal race
-	 * between checking a flag and pausing. */
+	/* sigwait returns at once if WAIT_SIGNAL is already pending (it
+	 * arrived after the block above, before this call), else sleeps
+	 * until it arrives. Either way it dequeues it: never missed. */
 	sigset_t wait_signals;
 	sigemptyset(&wait_signals);
 	sigaddset(&wait_signals, WAIT_SIGNAL);

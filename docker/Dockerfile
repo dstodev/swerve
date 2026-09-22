@@ -2,18 +2,19 @@ FROM alpine:3 AS build
 
 RUN apk add --no-cache gcc musl-dev
 COPY keep-open.c /src/keep-open.c
-RUN gcc -static -O2 -Wall -Wextra -o /keep-open /src/keep-open.c
+RUN gcc -static -O2 -Wall -Wextra -Werror -o /keep-open /src/keep-open.c
 
 FROM alpine:3
 
 LABEL org.opencontainers.image.description='Minimal example: gosu/tini \
 privilege drop with a FIFO-backed stdin channel'
 
+ARG TZ=America/Los_Angeles
+
 ARG USER_ID=1000
 ARG USER_NAME=user
 ARG GROUP_ID=$USER_ID
 ARG GROUP_NAME=$USER_NAME
-ARG TZ=America/Los_Angeles
 
 ENV APP_USER=$USER_NAME
 ENV APP_GROUP=$GROUP_NAME
