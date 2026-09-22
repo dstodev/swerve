@@ -29,6 +29,7 @@ main() {
 		test_entrypoint_hidden_from_app_user
 	check 'FIFO is owned by app user with mode 600' test_fifo_owner_and_mode
 	check 'tini is pid 1' test_tini_is_pid_1
+	check 'HEALTHCHECK command finds app.sh' test_healthcheck_finds_app
 	check 'keep-open is statically linked' test_keep_open_is_static
 	check 'app holds the FIFO as stdin' test_app_holds_fifo
 	check 'keep-open holds the FIFO' test_keep_open_holds_fifo
@@ -155,6 +156,45 @@ test_fifo_owner_and_mode() {
 
 test_tini_is_pid_1() {
 	[ "$(root_exec cat /proc/1/comm)" = 'tini' ]
+}
+
+# Runs the Dockerfile's actual HEALTHCHECK command, read back from
+# the built image rather than duplicated here, so this doesn't drift
+# if the app filename or check command ever changes. Runs it directly
+# instead of waiting on docker's own health-status polling interval.
+#
+# Test[0] is a mode tag, Test[1:] its payload. Reconstruct Test[1:]
+# as argv either way (`set --` has to stay in this function's own
+# scope: a called function's positional parameters don't leak to its
+# caller), then normalize CMD-SHELL's one-string payload into the
+# same argv shape CMD already has: dockerd runs CMD-SHELL as exactly
+# `sh -c "<that string>"`, so this is not an approximation.
+test_healthcheck_finds_app() {
+	mode=$(docker inspect \
+		--format '{{index .Config.Healthcheck.Test 0}}' "$IMAGE_NAME") ||
+		return 1
+	count=$(docker inspect --format \
+		'{{len .Config.Healthcheck.Test}}' "$IMAGE_NAME") || return 1
+	set --
+	i=1
+	while [ "$i" -lt "$count" ]; do
+		arg=$(docker inspect --format \
+			"{{index .Config.Healthcheck.Test $i}}" "$IMAGE_NAME") ||
+			return 1
+		set -- "$@" "$arg"
+		i=$((i + 1))
+	done
+
+	case $mode in
+	CMD-SHELL) set -- sh -c "$1" ;;
+	CMD) ;;
+	*)
+		echo "test.sh: unsupported HEALTHCHECK mode: $mode" >&2
+		return 1
+		;;
+	esac
+
+	root_exec "$@"
 }
 
 # Static binaries list no "=>" library lines. busybox is the dynamic
