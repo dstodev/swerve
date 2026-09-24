@@ -11,6 +11,7 @@ KEEP_OPEN=/usr/local/bin/keep-open
 this_dir="$(dirname -- "$(readlink --canonicalize -- "$0")")"
 repo_root="$this_dir/.."
 stdin_pipe=''
+stop_signal=''
 passed=0
 failed=0
 
@@ -18,7 +19,11 @@ main() {
 	trap cleanup EXIT
 
 	build_image
+	stop_signal=$(image_env STOP_SIGNAL)
+	check 'STOPSIGNAL matches STOP_SIGNAL' test_stopsignal_matches_env
 	run_container "$CONTAINER_NAME" "$REQUIRED_CAPS"
+	# shellcheck disable=SC2016 # $STDIN_PIPE expands in the container's
+	# own env via the invoked sh -c, not here
 	stdin_pipe=$(root_exec sh -c 'printf %s "$STDIN_PIPE"')
 	wait_for_pipe
 
@@ -40,12 +45,12 @@ main() {
 	check 'stdin lines reach the app' test_stdin_lines_reach_app "$@"
 
 	set -- HUP USR1 USR2
-	send_signals "$@"
+	send_signals "$CONTAINER_NAME" "$@"
 	check 'signals reach the app' test_signals_reach_app "$@"
 
-	set -- TERM
-	send_signals "$@"
-	check 'TERM gives the app EOF on stdin' test_term_gives_app_eof
+	send_signals "$CONTAINER_NAME" "$stop_signal"
+	check 'stop signal gives the app EOF on stdin' \
+		test_stop_signal_gives_app_eof
 	check 'container exits 0 after graceful shutdown' \
 		test_container_exits_zero
 
@@ -54,14 +59,28 @@ main() {
 	for cap in $REQUIRED_CAPS; do
 		check "capability $cap is required" test_cap_is_required "$cap"
 	done
-	check 'keep-open never misses TERM' test_keep_open_never_misses_term
+	check 'keep-open never misses the stop signal' \
+		test_keep_open_never_misses_stop_signal
 
 	summarize
 }
 
 build_image() {
 	docker build --build-arg USER_NAME="$APP_USER" \
-		--tag "$IMAGE_NAME" "$repo_root/docker"
+		--tag "$IMAGE_NAME" --file "$repo_root/docker/app.Dockerfile" \
+		"$repo_root/docker"
+}
+
+# Prints the value of env var $1 baked into the image.
+image_env() {
+	docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
+		"$IMAGE_NAME" | sed --quiet "s/^$1=//p"
+}
+
+test_stopsignal_matches_env() {
+	[ -n "$stop_signal" ] &&
+		[ "$(docker inspect --format '{{.Config.StopSignal}}' \
+			"$IMAGE_NAME")" = "SIG$stop_signal" ]
 }
 
 # Starts container $1 with capabilities $2 (space-separated) and any
@@ -130,11 +149,11 @@ wait_for_pipe() {
 }
 
 test_app_receives_forwarded_args() {
-	wait_for_log_lines "args (2): 'arg 1' 'arg 2'" 1
+	wait_for_log_lines "$CONTAINER_NAME" "args (2): 'arg 1' 'arg 2'" 1
 }
 
 test_app_starts_in_user_home() {
-	wait_for_log_lines "pwd: /home/$APP_USER" 1
+	wait_for_log_lines "$CONTAINER_NAME" "pwd: /home/$APP_USER" 1
 }
 
 test_app_runs_as_app_user() {
@@ -158,7 +177,7 @@ test_tini_is_pid_1() {
 	[ "$(root_exec cat /proc/1/comm)" = 'tini' ]
 }
 
-# Runs the Dockerfile's actual HEALTHCHECK command, read back from
+# Runs app.Dockerfile's actual HEALTHCHECK command, read back from
 # the built image rather than duplicated here, so this doesn't drift
 # if the app filename or check command ever changes. Runs it directly
 # instead of waiting on docker's own health-status polling interval.
@@ -230,24 +249,27 @@ write_stdin() {
 
 test_stdin_lines_reach_app() {
 	for line in "$@"; do
-		wait_for_log_lines "got: $line" 1 || return 1
+		wait_for_log_lines "$CONTAINER_NAME" "got: $line" 1 || return 1
 	done
 }
 
+# Sends each signal in "$@" after $1 to container $1.
 send_signals() {
+	container=$1
+	shift
 	for sig in "$@"; do
-		docker kill --signal "$sig" "$CONTAINER_NAME" >/dev/null
+		docker kill --signal "$sig" "$container" >/dev/null
 	done
 }
 
 test_signals_reach_app() {
 	for sig in "$@"; do
-		wait_for_log_lines "signal: $sig" 1 || return 1
+		wait_for_log_lines "$CONTAINER_NAME" "signal: $sig" 1 || return 1
 	done
 }
 
-test_term_gives_app_eof() {
-	wait_for_log_lines 'app: stdin closed, exiting' 1
+test_stop_signal_gives_app_eof() {
+	wait_for_log_lines "$CONTAINER_NAME" 'app: stdin closed, exiting' 1
 }
 
 test_container_exits_zero() {
@@ -273,40 +295,45 @@ test_app_exit_code_propagates() {
 # Every capability in REQUIRED_CAPS must be load-bearing: dropping any
 # one breaks the container lifecycle.
 test_cap_is_required() {
+	# shellcheck disable=SC2086 # intentional word splitting: iterate
+	# REQUIRED_CAPS's space-separated words, not a single token
 	remaining=$(printf '%s\n' $REQUIRED_CAPS |
 		grep --line-regexp --invert-match "$1" | tr '\n' ' ')
 	! lifecycle_completes "$CONTAINER_NAME-without-$1" "$remaining" 2>/dev/null
 }
 
-# Sends TERM as soon as keep-open returns, before its child can reach
-# sigwait. A missed TERM leaves the reader blocked until timeout.
-test_keep_open_never_misses_term() {
-	docker run --rm --name "$CONTAINER_NAME-term-race" \
+# Sends the stop signal as soon as keep-open returns, before its child
+# can reach sigwait. A missed signal leaves the reader blocked until
+# timeout.
+test_keep_open_never_misses_stop_signal() {
+	docker run --rm --name "$CONTAINER_NAME-signal-race" \
 		--entrypoint sh "$IMAGE_NAME" -c '
 		cd /tmp
 		for _ in $(seq 1 100); do
 			rm -f pipe && mkfifo pipe || exit 1
 			keep-open pipe || exit 1
 			exec 3<pipe
-			pkill -TERM keep-open
+			pkill -"$1" keep-open
 			timeout 2 cat <&3 || exit 1
 			exec 3<&-
 		done
-	'
+	' -- "$stop_signal"
 }
 
-# Whether container $1 starts, gets TERM, and exits 0 through app EOF.
+# Whether container $1 starts, gets the stop signal, and exits 0
+# through app EOF.
 lifecycle_completes() {
+	container=$1
 	status=0
-	(
-		CONTAINER_NAME=$1
-		run_container "$CONTAINER_NAME" "$2"
-		wait_for_log_lines 'app started' 1 &&
-			send_signals TERM &&
-			wait_for_log_lines 'app: stdin closed, exiting' 1 &&
-			[ "$(container_exit_code "$CONTAINER_NAME")" -eq 0 ]
-	) || status=$?
-	docker rm --force "$1" >/dev/null 2>&1 || true
+	{
+		run_container "$container" "$2" &&
+			wait_for_log_lines "$container" 'app started' 1 &&
+			send_signals "$container" "$stop_signal" &&
+			wait_for_log_lines "$container" \
+				'app: stdin closed, exiting' 1 &&
+			[ "$(container_exit_code "$container")" -eq 0 ]
+	} || status=$?
+	docker rm --force "$container" >/dev/null 2>&1 || true
 	return "$status"
 }
 
@@ -315,16 +342,18 @@ container_exit_code() {
 	timeout 10 docker wait "$1"
 }
 
+# Whether container $1 logged pattern $2 at least $3 times.
 log_lines_reached() {
-	pattern=$1
-	expected_lines=$2
-	got=$(docker logs "$CONTAINER_NAME" 2>&1 |
+	container=$1
+	pattern=$2
+	expected_lines=$3
+	got=$(docker logs "$container" 2>&1 |
 		grep --count --fixed-strings -- "$pattern" || true)
 	[ "$got" -ge "$expected_lines" ]
 }
 
 wait_for_log_lines() {
-	retry log_lines_reached "$1" "$2"
+	retry log_lines_reached "$1" "$2" "$3"
 }
 
 # Pid of the app.sh shell, parsed from the app's startup line.
@@ -350,7 +379,7 @@ holds_fifo() {
 }
 
 cleanup() {
-	docker ps --all --quiet --filter "name=^$CONTAINER_NAME" |
+	docker ps --all --quiet --filter "name=^$CONTAINER_NAME(-|\$)" |
 		xargs --no-run-if-empty docker rm --force >/dev/null 2>&1 || true
 }
 

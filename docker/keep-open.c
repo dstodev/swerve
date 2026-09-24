@@ -1,5 +1,5 @@
 /* Opens the FIFO (argv[1]) read+write, forks, and returns: the
- * child holds that fd until wait_signal, then closes it so a reader
+ * child holds that fd until CLOSE_SIGNAL, then closes it so a reader
  * elsewhere finally sees EOF. Run in the foreground by leader.sh (no
  * shell `&`), so nothing races its startup: the fd is already open
  * and the child already forked by the time this returns.
@@ -14,10 +14,11 @@
  * a reader elsewhere in testing. sigwait has no such race. */
 #include <fcntl.h>
 #include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <unistd.h> /* NOLINT(misc-include-cleaner): false positive */
 
-static const int WAIT_SIGNAL = SIGTERM;
+#ifndef CLOSE_SIGNAL
+#error "Define CLOSE_SIGNAL, e.g. -DCLOSE_SIGNAL=SIGTERM (see app.Dockerfile)"
+#endif
 
 int main(int argc, char** argv)
 {
@@ -27,8 +28,8 @@ int main(int argc, char** argv)
 
 	/* O_RDWR, not O_WRONLY: write-only would block this call until a
 	 * reader shows up, racing leader.sh's own open. O_RDWR never blocks. */
-	const int fd = open(argv[1], O_RDWR);
-	if (fd < 0) {
+	const int fifo_fd = open(argv[1], O_RDWR | O_CLOEXEC);
+	if (fifo_fd < 0) {
 		return 1;
 	}
 
@@ -39,7 +40,7 @@ int main(int argc, char** argv)
 	 * signal isn't lost, it stays pending until sigwait collects it. */
 	sigset_t blocked;
 	sigfillset(&blocked);
-	sigprocmask(SIG_BLOCK, &blocked, NULL);
+	pthread_sigmask(SIG_BLOCK, &blocked, NULL);
 
 	const pid_t child = fork();
 	if (child < 0) {
@@ -49,15 +50,15 @@ int main(int argc, char** argv)
 		return 0; /* parent: fd is open, child holds it, we're done */
 	}
 
-	/* sigwait returns at once if WAIT_SIGNAL is already pending (it
+	/* sigwait returns at once if CLOSE_SIGNAL is already pending (it
 	 * arrived after the block above, before this call), else sleeps
 	 * until it arrives. Either way it dequeues it: never missed. */
 	sigset_t wait_signals;
 	sigemptyset(&wait_signals);
-	sigaddset(&wait_signals, WAIT_SIGNAL);
-	int caught;
+	sigaddset(&wait_signals, CLOSE_SIGNAL);
+	int caught = 0;
 	sigwait(&wait_signals, &caught);
 
-	close(fd);
+	close(fifo_fd);
 	return 0;
 }

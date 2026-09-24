@@ -21,10 +21,10 @@ trap 'on_signal HUP' HUP
 trap 'on_signal USR1' USR1
 trap 'on_signal USR2' USR2
 
-# Important to set TERM disposition away from default (terminate).
-# keep-open.c closes the FIFO on TERM, letting this app read EOF and
-# exit gracefully. Must match keep-open.c's hardcoded signal if changed.
-trap 'on_signal TERM' TERM
+# Important to set STOP_SIGNAL (from app.Dockerfile) disposition away
+# from default (terminate). keep-open.c closes the FIFO on it, letting
+# this app read EOF and exit gracefully.
+trap 'on_signal "$STOP_SIGNAL"' "$STOP_SIGNAL"
 
 while :; do
 	if IFS= read -r line; then
@@ -37,5 +37,5 @@ while :; do
 	fi
 done
 
-# normal shutdown: TERM drops the FIFO's writer, so read() EOFs here
+# normal shutdown: STOP_SIGNAL drops the FIFO's writer, so read() EOFs here
 echo 'app: stdin closed, exiting'

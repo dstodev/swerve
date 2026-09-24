@@ -1,13 +1,23 @@
+# Signal that ends the app: docker stop sends it, keep-open waits for it,
+# app.sh traps it. Name without the SIG prefix, e.g. TERM, INT
+ARG STOP_SIGNAL=TERM
+
 FROM alpine:3 AS build
+ARG STOP_SIGNAL
 
 RUN apk add --no-cache gcc musl-dev
 COPY keep-open.c /src/keep-open.c
-RUN gcc -static -O2 -Wall -Wextra -Werror -o /keep-open /src/keep-open.c
+RUN gcc -static -O2 -Wall -Wextra -Werror -DCLOSE_SIGNAL="SIG$STOP_SIGNAL" \
+	-o /keep-open /src/keep-open.c
 
 FROM alpine:3
 
 LABEL org.opencontainers.image.description='Minimal example: gosu/tini \
 privilege drop with a FIFO-backed stdin channel'
+
+ARG STOP_SIGNAL
+STOPSIGNAL SIG$STOP_SIGNAL
+ENV STOP_SIGNAL=$STOP_SIGNAL
 
 ENV STDIN_PIPE=/run/stdin.pipe
 ENV LANG=C.UTF-8

@@ -33,9 +33,10 @@ Any number of `docker exec` calls, at any time, can write to it.
 - **Correct PID 1 semantics**: [`tini`](https://github.com/krallin/tini)
   reaps zombies and forwards signals, so the app doesn't have to
   reimplement init behavior to be a container's entrypoint.
-- **Real graceful shutdown**: `SIGTERM` causes the app's normal
-  `read` loop to see an actual EOF and exit through its own code
-  path, not a forced kill. See [Shutdown](#shutdown) below for why
+- **Real graceful shutdown**: the stop signal (`STOP_SIGNAL` build
+  arg, default `SIGTERM`) causes the app's normal `read` loop to see
+  an actual EOF and exit through its own code path, not a forced
+  kill. See [Shutdown](#shutdown) below for why
   that's harder than it sounds.
 - **Locked-down runtime**: the test (`test.sh`) drops all
   capabilities and adds back only `SETUID`, `SETGID`, `CHOWN`, `KILL`
@@ -97,23 +98,23 @@ shell trap wasn't reliable here.
 
 ## Files
 
-| File                   | Role                                               |
-| ---------------------- | -------------------------------------------------- |
-| `docker/Dockerfile`    | Multi-stage: compiles `keep-open`, assembles image |
-| `docker/entrypoint.sh` | Creates the FIFO, `chown`s it, execs `tini`        |
-| `docker/leader.sh`     | Process leader: launches `keep-open`, execs app    |
-| `docker/keep-open.c`   | Holds the FIFO open until `SIGTERM`; app-agnostic  |
-| `docker/app.sh`        | The app to replace with your own (see below)       |
-| `script/test.sh`       | End-to-end test: build, run, assert invariants     |
-| `script/lint.sh`       | Static checks: shell syntax, signal agreement      |
-| `Makefile`             | `make help` \| `image` \| `lint` \| `test` \| `sh` |
+| File                     | Role                                              |
+| ------------------------ | ------------------------------------------------- |
+| `docker/app.Dockerfile`  | Multi-stage: builds `keep-open`, assembles image  |
+| `docker/lint.Dockerfile` | Lint tools: ShellCheck, clang-format, clang-tidy  |
+| `docker/entrypoint.sh`   | Creates the FIFO, `chown`s it, execs `tini`       |
+| `docker/leader.sh`       | Process leader: launches `keep-open`, execs app   |
+| `docker/keep-open.c`     | Holds the FIFO open until the stop signal         |
+| `docker/app.sh`          | The app to replace with your own (see below)      |
+| `script/test.sh`         | End-to-end test: build, run, assert invariants    |
+| `Makefile`               | Dev goals; list with `make help`                  |
 
 ## Using this as a template
 
 1. Replace `docker/app.sh` with your own program. It only needs to
    read stdin normally: no FIFO, signal, or privilege-drop code of
    its own.
-2. Update the `Dockerfile`'s `COPY` line(s) and any runtime deps your
+2. Update `docker/app.Dockerfile`'s `COPY` line(s) and any runtime deps your
    app needs.
 3. Everything else (`entrypoint.sh`, `leader.sh`, `keep-open.c`)
    is app-agnostic and shouldn't need to change.
@@ -121,7 +122,7 @@ shell trap wasn't reliable here.
 ## Quickstart
 
 ```sh
-make lint         # static checks, no extra tools
+make lint         # static checks (lint tools run in Docker)
 make test         # build, run, assert invariants, tee output to test.log
 make shell        # drop into a shell in the built image
 docker exec <container> sh -c 'echo hello > /run/stdin.pipe'
